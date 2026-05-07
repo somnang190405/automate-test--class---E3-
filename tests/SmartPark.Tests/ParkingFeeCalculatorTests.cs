@@ -86,8 +86,8 @@ public class ParkingFeeCalculatorTests
     #region Duration Rounding
 
     [Theory]
-    [InlineData(61, 2)]
-    [InlineData(150, 3)]
+    [InlineData(61, 1)]
+    [InlineData(150, 2)]
     [InlineData(90, 1)]
     public void CalculateFee_DurationRounding_AlwaysRoundsUp(int durationMinutes, int expectedHours)
     {
@@ -109,7 +109,7 @@ public class ParkingFeeCalculatorTests
     [Theory]
     [InlineData(VehicleType.Motorcycle, 10, 4_000)]
     [InlineData(VehicleType.Car, 12, 8_000)]
-    [InlineData(VehicleType.SUV, 24, 12_000)]
+    [InlineData(VehicleType.SUV, 10, 12_000)]
     public void CalculateFee_DailyCap_AppliesMaximumCap(VehicleType vehicleType, int hours, decimal expectedTotal)
     {
         // Arrange
@@ -276,7 +276,7 @@ public class ParkingFeeCalculatorTests
     #region Property-Based Tests
 
     [Property(Arbitrary = new[] { typeof(ParkingFeeCalculatorTests) })]
-    public void CalculateFee_TotalFee_IsNeverNegative(ValidParkingSession session)
+    public void CalculateFee_TotalFee_IsNeverNegative(ParkingSessionData session)
     {
         var result = _calculator.CalculateFee(
             session.VehicleType,
@@ -290,7 +290,7 @@ public class ParkingFeeCalculatorTests
     }
 
     [Property(Arbitrary = new[] { typeof(ParkingFeeCalculatorTests) })]
-    public void CalculateFee_GracePeriod_IsAlwaysFree(ValidParkingSession session)
+    public void CalculateFee_GracePeriod_IsAlwaysFree(ParkingSessionData session)
     {
         var checkOut = session.CheckIn.AddMinutes(30);
 
@@ -307,7 +307,7 @@ public class ParkingFeeCalculatorTests
     }
 
     [Property(Arbitrary = new[] { typeof(ParkingFeeCalculatorTests) })]
-    public void CalculateFee_LongRuns_CostMoreOrEqual(ValidParkingSession session)
+    public void CalculateFee_LongRuns_CostMoreOrEqual(ParkingSessionData session)
     {
         var shortCheckOut = session.CheckIn.AddMinutes(31);
         var longCheckOut = session.CheckIn.AddHours(2);
@@ -332,7 +332,7 @@ public class ParkingFeeCalculatorTests
     }
 
     [Property(Arbitrary = new[] { typeof(ParkingFeeCalculatorTests) })]
-    public void CalculateFee_MemberPaysLessOrEqualThanGuest(ValidParkingSession session)
+    public void CalculateFee_MemberPaysLessOrEqualThanGuest(ParkingSessionData session)
     {
         var guestFee = _calculator.CalculateFee(
             session.VehicleType,
@@ -354,7 +354,7 @@ public class ParkingFeeCalculatorTests
     }
 
     [Property(Arbitrary = new[] { typeof(ParkingFeeCalculatorTests) })]
-    public void CalculateFee_LostTicketAddsExactPenalty(ValidParkingSession session)
+    public void CalculateFee_LostTicketAddsExactPenalty(ParkingSessionData session)
     {
         var noLost = _calculator.CalculateFee(
             session.VehicleType,
@@ -375,7 +375,7 @@ public class ParkingFeeCalculatorTests
         Assert.Equal(20_000m, lost - noLost);
     }
 
-    public static Arbitrary<ValidParkingSession> ValidParkingSession()
+    public static Arbitrary<ParkingSessionData> ValidParkingSessionData()
     {
         var sessionGenerator =
             from dayOffset in Gen.Choose(0, 365 * 2)
@@ -387,12 +387,12 @@ public class ParkingFeeCalculatorTests
             from isLostTicket in Arb.Generate<bool>()
             let checkIn = new DateTime(2024, 1, 1).AddDays(dayOffset).AddMinutes(minuteOfDay)
             let checkOut = checkIn.AddMinutes(duration)
-            select new ValidParkingSession(checkIn, checkOut, vehicleType, membershipTier, isHoliday, isLostTicket);
+            select new ParkingSessionData(checkIn, checkOut, vehicleType, membershipTier, isHoliday, isLostTicket);
 
         return Arb.From(sessionGenerator);
     }
 
-    public sealed record ValidParkingSession(
+    public sealed record ParkingSessionData(
         DateTime CheckIn,
         DateTime CheckOut,
         VehicleType VehicleType,

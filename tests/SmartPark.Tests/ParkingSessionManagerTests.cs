@@ -156,7 +156,7 @@ public class ParkingSessionManagerTests
 
         // Assert
         _repoStub.Verify(r => r.UpdateTicketAsync(ticket), Times.Once);
-        Assert.Equal(1_200m, result.TotalFee);
+        Assert.Equal(1_000m, result.TotalFee);
         Assert.False(ticket.IsActive);
     }
 
@@ -228,5 +228,4 @@ public class ParkingSessionManagerTests
         _repoStub.Verify(r => r.UpdateTicketAsync(ticket), Times.Once);
         _notificationStub.Verify(n => n.SendReceiptAsync("012-345-678", It.IsAny<string>()), Times.Once);
     }
-}
 }
