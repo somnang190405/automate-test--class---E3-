@@ -73,7 +73,96 @@ public class ParkingFlowIntegrationTests
     }
 
     #region Full Parking Flow
-    // End-to-end scenarios from check-in through check-out
+
+    [Fact]
+    public async Task FullFlow_MultipleVehicles_CheckOutOneLeavesOthersActive()
+    {
+        _currentTime = new DateTime(2026, 3, 16, 10, 0, 0);
+        var ticket1 = await _manager.CheckInAsync("CAR-001", VehicleType.Car);
+        var ticket2 = await _manager.CheckInAsync("CAR-002", VehicleType.Car);
+        var ticket3 = await _manager.CheckInAsync("MOTO-001", VehicleType.Motorcycle);
+
+        _currentTime = _currentTime.AddHours(2);
+        await _manager.CheckOutAsync(ticket1.TicketId, "012-345-678");
+
+        var activeTickets = await _repository.GetAllActiveTicketsAsync();
+        Assert.Equal(2, activeTickets.Count());
+        Assert.Contains(activeTickets, t => t.Vehicle.LicensePlate == "CAR-002");
+        Assert.Contains(activeTickets, t => t.Vehicle.LicensePlate == "MOTO-001");
+    }
+
+    [Fact]
+    public async Task FullFlow_PaymentFailure_LeavesTicketActive()
+    {
+        var paymentFailure = new Mock<IPaymentGateway>();
+        paymentFailure.Setup(p => p.ProcessPaymentAsync(It.IsAny<string>(), It.IsAny<decimal>())).ReturnsAsync(false);
+
+        var dateTimeStub = new Mock<IDateTimeProvider>();
+        dateTimeStub.Setup(d => d.Now).Returns(() => _currentTime);
+
+        var membershipStub = new Mock<IMembershipService>();
+        membershipStub.Setup(m => m.GetMembershipTier(It.IsAny<string>())).Returns(MembershipTier.Guest);
+
+        var manager = new ParkingSessionManager(
+            _feeCalculator,
+            paymentFailure.Object,
+            _notificationStub.Object,
+            membershipStub.Object,
+            _repository,
+            dateTimeStub.Object);
+
+        _currentTime = new DateTime(2026, 3, 16, 10, 0, 0);
+        var ticket = await manager.CheckInAsync("FAIL-001", VehicleType.Car);
+
+        _currentTime = _currentTime.AddMinutes(61);
+        await Assert.ThrowsAsync<Exception>(() => manager.CheckOutAsync(ticket.TicketId, "012-345-678"));
+
+        var storedTicket = await _repository.GetTicketByIdAsync(ticket.TicketId);
+        Assert.NotNull(storedTicket);
+        Assert.True(storedTicket!.IsActive);
+    }
+
+    [Fact]
+    public async Task FullFlow_GracePeriodLostTicket_ReturnsPenaltyOnly()
+    {
+        _currentTime = new DateTime(2026, 3, 16, 10, 0, 0);
+        var ticket = await _manager.CheckInAsync("GRACE-001", VehicleType.Car);
+
+        _currentTime = _currentTime.AddMinutes(15);
+        var result = await _manager.CheckOutAsync(ticket.TicketId, "012-345-678", isLostTicket: true);
+
+        Assert.Equal(20_000m, result.TotalFee);
+    }
+
+    [Fact]
+    public async Task FullFlow_GoldMemberWeekendOvernight_CalculatesDiscountAndOvernight()
+    {
+        // Arrange a custom membership response for this plate
+        var membershipStub = new Mock<IMembershipService>();
+        membershipStub.Setup(m => m.GetMembershipTier("GOLD-001")).Returns(MembershipTier.Gold);
+        membershipStub.Setup(m => m.GetMembershipTier(It.IsAny<string>())).Returns(MembershipTier.Guest);
+
+        var dateTimeStub = new Mock<IDateTimeProvider>();
+        dateTimeStub.Setup(d => d.Now).Returns(() => _currentTime);
+
+        var customManager = new ParkingSessionManager(
+            _feeCalculator,
+            _paymentStub.Object,
+            _notificationStub.Object,
+            membershipStub.Object,
+            _repository,
+            dateTimeStub.Object);
+
+        _currentTime = new DateTime(2026, 3, 14, 21, 0, 0); // Sunday 9 PM
+        var ticket = await customManager.CheckInAsync("GOLD-001", VehicleType.Car);
+
+        _currentTime = _currentTime.AddHours(3); // 12 AM Monday
+        var result = await customManager.CheckOutAsync(ticket.TicketId, "012-345-678");
+
+        Assert.True(result.TotalFee > 0);
+        Assert.Contains("Overnight", result.Breakdown);
+    }
+
     #endregion
 
     #region Multiple Vehicles

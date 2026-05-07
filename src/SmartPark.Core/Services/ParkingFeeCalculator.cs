@@ -60,9 +60,103 @@ public class ParkingFeeCalculator
         bool isLostTicket = false,
         bool isHoliday = false)
     {
-        // TODO: Implement the 9-step fee calculation using TDD.
-        // Write a failing test first (RED), then implement just enough to pass (GREEN).
-        throw new NotImplementedException(
-            "Implement this method using TDD — see the assignment spec for the 9-step calculation flow.");
+        if (checkOut < checkIn)
+            throw new ArgumentException("checkOut must be after checkIn.", nameof(checkOut));
+
+        var totalMinutes = (checkOut - checkIn).TotalMinutes;
+        if (totalMinutes <= GracePeriodMinutes)
+        {
+            var penalty = isLostTicket ? LostTicketPenalty : 0m;
+            return new ParkingFeeResult
+            {
+                BaseFee = 0m,
+                SurchargeAmount = 0m,
+                DiscountAmount = 0m,
+                LostTicketPenalty = penalty,
+                TotalFee = penalty,
+                Breakdown = BuildBreakdown(0m, 0m, 0m, penalty, 0m)
+            };
+        }
+
+        var billableHours = CalculateBillableHours(totalMinutes);
+        var hourlyRate = GetHourlyRate(vehicleType);
+        var dailyCap = GetDailyCap(vehicleType);
+        var baseFee = Math.Min(billableHours * hourlyRate, dailyCap);
+        var surchargeAmount = CalculateSurcharge(baseFee, isHoliday, checkIn.DayOfWeek);
+        var discountAmount = CalculateDiscount(membership, baseFee + surchargeAmount);
+        var overnightFee = CalculateOvernightFee(checkIn, checkOut);
+        var lostTicketPenalty = isLostTicket ? LostTicketPenalty : 0m;
+        var totalFee = Math.Max(baseFee + surchargeAmount - discountAmount + overnightFee + lostTicketPenalty, 0m);
+
+        return new ParkingFeeResult
+        {
+            BaseFee = baseFee,
+            SurchargeAmount = surchargeAmount,
+            DiscountAmount = discountAmount,
+            LostTicketPenalty = lostTicketPenalty,
+            TotalFee = totalFee,
+            Breakdown = BuildBreakdown(baseFee, surchargeAmount, discountAmount, lostTicketPenalty, overnightFee)
+        };
+    }
+
+    private static int CalculateBillableHours(double totalMinutes)
+    {
+        var billableMinutes = totalMinutes - GracePeriodMinutes;
+        return Math.Max(1, (int)Math.Ceiling(billableMinutes / 60.0));
+    }
+
+    private static decimal GetHourlyRate(VehicleType vehicleType) => vehicleType switch
+    {
+        VehicleType.Motorcycle => MotorcycleRatePerHour,
+        VehicleType.Car => CarRatePerHour,
+        VehicleType.SUV => SuvRatePerHour,
+        _ => throw new ArgumentOutOfRangeException(nameof(vehicleType), vehicleType, "Unsupported vehicle type.")
+    };
+
+    private static decimal GetDailyCap(VehicleType vehicleType) => vehicleType switch
+    {
+        VehicleType.Motorcycle => MotorcycleDailyCap,
+        VehicleType.Car => CarDailyCap,
+        VehicleType.SUV => SuvDailyCap,
+        _ => throw new ArgumentOutOfRangeException(nameof(vehicleType), vehicleType, "Unsupported vehicle type.")
+    };
+
+    private static decimal CalculateSurcharge(decimal baseFee, bool isHoliday, DayOfWeek dayOfWeek)
+    {
+        if (isHoliday)
+            return baseFee * HolidaySurchargeRate;
+
+        return dayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday
+            ? baseFee * WeekendSurchargeRate
+            : 0m;
+    }
+
+    private static decimal CalculateDiscount(MembershipTier membership, decimal subtotal)
+    {
+        var rate = membership switch
+        {
+            MembershipTier.Silver => SilverDiscountRate,
+            MembershipTier.Gold => GoldDiscountRate,
+            MembershipTier.Platinum => PlatinumDiscountRate,
+            _ => 0m
+        };
+
+        return subtotal * rate;
+    }
+
+    private static decimal CalculateOvernightFee(DateTime checkIn, DateTime checkOut)
+    {
+        var cutoff = new DateTime(checkIn.Year, checkIn.Month, checkIn.Day, OvernightHourThreshold, 0, 0);
+        return checkOut > cutoff ? OvernightFlatFee : 0m;
+    }
+
+    private static string BuildBreakdown(
+        decimal baseFee,
+        decimal surchargeAmount,
+        decimal discountAmount,
+        decimal lostTicketPenalty,
+        decimal overnightFee)
+    {
+        return $"Base={baseFee}; Surcharge={surchargeAmount}; Discount={discountAmount}; Overnight={overnightFee}; LostPenalty={lostTicketPenalty}";
     }
 }
